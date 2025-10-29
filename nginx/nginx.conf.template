@@ -1,0 +1,95 @@
+# nginx.conf.template
+user  nginx;
+worker_processes  auto;
+error_log  /var/log/nginx/error.log warn;
+pid        /var/run/nginx.pid;
+
+events {
+  worker_connections  1024;
+}
+
+http {
+  include       /etc/nginx/mime.types;
+  default_type  application/octet-stream;
+
+  # Buffering and timeouts tuned for quick failover (requests must finish < 10s).
+  send_timeout   10s;
+  client_header_timeout 5s;
+  client_body_timeout 5s;
+  keepalive_timeout  5s;
+
+  # Upstreams: primary + backup
+  upstream app_primary {
+    # Primary server (the active pool). Use max_fails / fail_timeout low so Nginx marks quickly.
+    server ${BLUE_HOST}:${BLUE_PORT} max_fails=1 fail_timeout=3s;
+    # backup server - only used when primary fails or retried
+    server ${GREEN_HOST}:${GREEN_PORT} backup;
+  }
+
+  upstream app_primary_alt {
+    # alternate ordering in case ACTIVE_POOL=green
+    server ${GREEN_HOST}:${GREEN_PORT} max_fails=1 fail_timeout=3s;
+    server ${BLUE_HOST}:${BLUE_PORT} backup;
+  }
+
+  # choose upstream based on ACTIVE_POOL
+  # the template chooses 'app_primary' when ACTIVE_POOL=blue, otherwise app_primary_alt
+  map "$ACTIVE_POOL" $upstream_name {
+    default app_primary;
+    blue app_primary;
+    green app_primary_alt;
+  }
+
+  server {
+    listen 80;
+    server_name _;
+
+    # Pass real host header
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Preserve upstream response headers (do not hide headers)
+    # Default behavior preserves headers; ensure we do not strip X-App-Pool or X-Release-Id.
+
+    location / {
+      # Fast timeouts: detect failures quickly, but still allow ~10s total per request.
+      proxy_connect_timeout 1s;
+      proxy_send_timeout 5s;
+      proxy_read_timeout 8s;
+
+      # If primary fails (error, timeout, 5xx), allow retry to backup within same client request.
+      # proxy_next_upstream defines conditions for trying the next upstream
+      proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 2;
+      proxy_next_upstream_timeout 9s;
+
+      proxy_pass http://$upstream_name;
+
+      # Ensure we forward all response headers unchanged
+      # (do not add proxy_hide_header directives)
+      proxy_buffering off;
+    }
+
+    # health endpoint pass-through (useful for other tooling)
+    location /healthz {
+      proxy_pass http://$upstream_name/healthz;
+      proxy_connect_timeout 1s;
+      proxy_read_timeout 3s;
+      proxy_send_timeout 3s;
+      proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 2;
+    }
+
+    # version endpoint proxied (same as /)
+    location /version {
+      proxy_pass http://$upstream_name/version;
+      proxy_connect_timeout 1s;
+      proxy_read_timeout 8s;
+      proxy_send_timeout 5s;
+      proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+      proxy_next_upstream_tries 2;
+    }
+  }
+}

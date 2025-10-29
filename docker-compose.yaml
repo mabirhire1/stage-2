@@ -1,0 +1,48 @@
+services:
+  app_blue:
+    image: "${BLUE_IMAGE}"
+    environment:
+      - APP_POOL=blue
+      - RELEASE_ID=${RELEASE_ID_BLUE}
+      - PORT=${PORT:-3000}
+    ports:
+      - "8081:${PORT:-3000}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 2
+
+  app_green:
+    image: "${GREEN_IMAGE}"
+    environment:
+      - APP_POOL=green
+      - RELEASE_ID=${RELEASE_ID_GREEN}
+      - PORT=${PORT:-3000}
+    ports:
+      - "8082:${PORT:-3000}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 2
+
+  nginx:
+    image: nginx:stable-alpine
+    depends_on:
+      - app_blue
+      - app_green
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./nginx/start.sh:/start.sh:ro
+    environment:
+      - ACTIVE_POOL=${ACTIVE_POOL}
+      - APP_PORT=${PORT:-3000}
+      - BLUE_HOST=app_blue
+      - GREEN_HOST=app_green
+      - BLUE_PORT=${PORT:-3000}
+      - GREEN_PORT=${PORT:-3000}
+    command: ["/bin/sh", "-c", "chmod +x /start.sh && /start.sh"]
+    restart: always
