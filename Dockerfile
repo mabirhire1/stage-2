@@ -1,12 +1,10 @@
-FROM node:18-alpine
+FROM nginx:stable-alpine
 
-WORKDIR /app
+# Copy template and start script
+COPY nginx/nginx.conf.template /etc/nginx/nginx.conf.template
+COPY nginx/start.sh /start.sh
 
-COPY package*.json ./
-RUN npm install --production
+# Make script executable
+RUN chmod +x /start.sh
 
-COPY . .
-
-EXPOSE 3000
-
-CMD ["npm", "start"]
+CMD ["/start.sh"]

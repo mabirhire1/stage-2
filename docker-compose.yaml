@@ -2,33 +2,56 @@ version: "3.8"
 
 services:
   app_blue:
-    build: .
-    container_name: stage-2-app_blue
-    image: mabirhire1/node-test-image-blue:latest
+    image: "${BLUE_IMAGE}"
+    container_name: stage-2-app_blue-1
     environment:
+      - APP_POOL=blue
+      - RELEASE_ID=${RELEASE_ID_BLUE}
       - PORT=3000
-      - COLOR=blue
-      - VERSION=1.0.0
+    expose:
+      - "3000"
     ports:
       - "8081:3000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/version"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 2
 
   app_green:
-    build: .
-    container_name: stage-2-app_green
-    image: mabirhire1/node-test-image-green:latest
+    image: "${GREEN_IMAGE}"
+    container_name: stage-2-app_green-1
     environment:
+      - APP_POOL=green
+      - RELEASE_ID=${RELEASE_ID_GREEN}
       - PORT=3000
-      - COLOR=green
-      - VERSION=1.0.0
+    expose:
+      - "3000"
     ports:
       - "8082:3000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/version"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 2
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: stage-2-nginx-1
+    depends_on:
+      - app_blue
+      - app_green
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      - ./nginx/start.sh:/start.sh:ro
+    environment:
+      - ACTIVE_POOL=${ACTIVE_POOL}
+      - APP_PORT=3000
+      - BLUE_HOST=app_blue
+      - GREEN_HOST=app_green
+      - BLUE_PORT=3000
+      - GREEN_PORT=3000
+    command: ["/bin/sh", "/start.sh"]
+    restart: always
